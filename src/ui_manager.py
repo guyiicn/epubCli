@@ -100,9 +100,17 @@ class UIManager:
             f"{chapter_info} | {page_info}"
         )
         
-        # Main content
+        # Get current display settings
+        display_settings = self.config.get_display_settings()
+        font_size = display_settings.get('font_size', 12)
+        line_spacing = display_settings.get('line_spacing', 1.2)
+        
+        # Apply font size and line spacing to content
+        formatted_content = self._apply_display_settings(content, font_size, line_spacing)
+        
+        # Main content with applied settings
         content_panel = Panel(
-            content,
+            formatted_content,
             box=box.ROUNDED,
             style="white",
             padding=(1, 2)
@@ -126,6 +134,66 @@ class UIManager:
         
         # Use smooth screen update
         self.smooth_display_update()
+    
+    def _apply_display_settings(self, content: str, font_size: int, line_spacing: float) -> Text:
+        """Apply display settings (font size and line spacing) to content."""
+        # Create Rich Text object for advanced formatting
+        text = Text()
+        
+        # Split content into lines
+        lines = content.split('\n')
+        
+        # Apply font size simulation through character spacing and formatting
+        # Since terminal can't change actual font size, we simulate it through:
+        # 1. Character spacing for larger fonts
+        # 2. Text compression for smaller fonts
+        # 3. Style changes for visual emphasis
+        
+        font_style = "white"
+        char_spacing = ""
+        
+        if font_size >= 20:
+            # Very large font: character spacing only (no bright background)
+            font_style = "white"
+            char_spacing = " "  # Add space between characters
+        elif font_size >= 16:
+            # Large font: normal white
+            font_style = "white"
+        elif font_size >= 12:
+            # Normal font: default
+            font_style = "white"
+        elif font_size >= 10:
+            # Small font: slightly dim
+            font_style = "dim white"
+        else:
+            # Very small font: very dim + compressed
+            font_style = "dim"
+        
+        # Apply line spacing by adding extra newlines
+        extra_lines = max(0, int((line_spacing - 1.0) * 2))  # Convert spacing to extra lines
+        
+        for i, line in enumerate(lines):
+            # Apply character spacing for larger fonts
+            if char_spacing and font_size >= 20:
+                # Add spacing between characters for "larger" appearance
+                spaced_line = char_spacing.join(line)
+                text.append(spaced_line, style=font_style)
+            elif font_size < 10:
+                # For very small fonts, we could compress by removing some spaces
+                compressed_line = line.replace('  ', ' ')  # Reduce double spaces
+                text.append(compressed_line, style=font_style)
+            else:
+                # Normal display
+                text.append(line, style=font_style)
+            
+            # Add line spacing (except for the last line)
+            if i < len(lines) - 1:
+                text.append('\n')
+                # Add extra newlines for line spacing
+                for _ in range(extra_lines):
+                    text.append('\n')
+        
+        return text
     
     def smooth_display_update(self):
         """Smooth display update with reduced flicker."""
@@ -217,14 +285,21 @@ class UIManager:
         """Display settings menu and return updated settings."""
         self.clear_screen()
         
+        # Create a copy to track changes
+        modified_settings = {
+            'display': current_settings.get('display', {}).copy(),
+            'reading': current_settings.get('reading', {}).copy()
+        }
+        settings_changed = False
+        
         while True:
             table = Table(title="⚙️ Settings", box=box.ROUNDED)
             table.add_column("Setting", style="cyan")
             table.add_column("Current Value", style="white")
             table.add_column("Description", style="dim")
             
-            display = current_settings.get('display', {})
-            reading = current_settings.get('reading', {})
+            display = modified_settings.get('display', {})
+            reading = modified_settings.get('reading', {})
             
             table.add_row("1", f"Font Size: {display.get('font_size', 12)}", "Text size (8-72)")
             table.add_row("2", f"Line Spacing: {display.get('line_spacing', 1.2)}", "Line height (0.5-3.0)")
@@ -232,9 +307,12 @@ class UIManager:
             table.add_row("4", f"Page Height: {display.get('page_height', 24)}", "Lines per page")
             table.add_row("5", f"Show Progress: {reading.get('show_progress', True)}", "Display reading progress")
             table.add_row("6", f"Auto Save: {reading.get('auto_save_interval', 30)}s", "Auto save interval")
-            table.add_row("0", "Back to reading", "Return to book")
+            table.add_row("0", "Save and return", "Save changes and return to book")
             
             self.console.print(table)
+            
+            if settings_changed:
+                self.console.print("\n[yellow]⚠️  You have unsaved changes[/yellow]")
             
             try:
                 choice = IntPrompt.ask("\nSelect setting to change", default=0)
@@ -244,34 +322,60 @@ class UIManager:
                 elif choice == 1:
                     new_size = IntPrompt.ask("Font size (8-72)", default=display.get('font_size', 12))
                     if 8 <= new_size <= 72:
-                        current_settings['display']['font_size'] = new_size
+                        modified_settings['display']['font_size'] = new_size
+                        settings_changed = True
+                        self.console.print(f"[green]✓ Font size changed to {new_size}[/green]")
+                    else:
+                        self.console.print("[red]Invalid font size! Must be between 8-72[/red]")
                 elif choice == 2:
                     new_spacing = float(Prompt.ask("Line spacing (0.5-3.0)", default=str(display.get('line_spacing', 1.2))))
                     if 0.5 <= new_spacing <= 3.0:
-                        current_settings['display']['line_spacing'] = new_spacing
+                        modified_settings['display']['line_spacing'] = new_spacing
+                        settings_changed = True
+                        self.console.print(f"[green]✓ Line spacing changed to {new_spacing}[/green]")
+                    else:
+                        self.console.print("[red]Invalid line spacing! Must be between 0.5-3.0[/red]")
                 elif choice == 3:
                     new_width = IntPrompt.ask("Page width (40-120)", default=display.get('page_width', 80))
                     if 40 <= new_width <= 120:
-                        current_settings['display']['page_width'] = new_width
+                        modified_settings['display']['page_width'] = new_width
                         self.page_width = new_width
+                        settings_changed = True
+                        self.console.print(f"[green]✓ Page width changed to {new_width}[/green]")
+                    else:
+                        self.console.print("[red]Invalid page width! Must be between 40-120[/red]")
                 elif choice == 4:
                     new_height = IntPrompt.ask("Page height (10-50)", default=display.get('page_height', 24))
                     if 10 <= new_height <= 50:
-                        current_settings['display']['page_height'] = new_height
+                        modified_settings['display']['page_height'] = new_height
                         self.page_height = new_height
+                        settings_changed = True
+                        self.console.print(f"[green]✓ Page height changed to {new_height}[/green]")
+                    else:
+                        self.console.print("[red]Invalid page height! Must be between 10-50[/red]")
                 elif choice == 5:
-                    current_settings['reading']['show_progress'] = Confirm.ask("Show progress")
+                    new_progress = Confirm.ask("Show progress")
+                    modified_settings['reading']['show_progress'] = new_progress
+                    settings_changed = True
+                    self.console.print(f"[green]✓ Show progress changed to {new_progress}[/green]")
                 elif choice == 6:
                     new_interval = IntPrompt.ask("Auto save interval (10-300 seconds)", default=reading.get('auto_save_interval', 30))
                     if 10 <= new_interval <= 300:
-                        current_settings['reading']['auto_save_interval'] = new_interval
+                        modified_settings['reading']['auto_save_interval'] = new_interval
+                        settings_changed = True
+                        self.console.print(f"[green]✓ Auto save interval changed to {new_interval}s[/green]")
+                    else:
+                        self.console.print("[red]Invalid interval! Must be between 10-300 seconds[/red]")
                 
-                self.clear_screen()
+                if choice != 0:
+                    time.sleep(1)  # Brief pause to show the confirmation message
+                    self.clear_screen()
                 
             except (ValueError, KeyboardInterrupt):
                 break
         
-        return current_settings
+        # Return modified settings only if changes were made
+        return modified_settings if settings_changed else None
     
     def show_library(self, books: List[Dict[str, Any]]) -> Optional[str]:
         """Display library and return selected book path."""

@@ -122,11 +122,36 @@ class EpubReaderApp:
         current_settings = self.config.get_all_settings()
         updated_settings = self.ui.show_settings(current_settings)
         
-        # Save updated settings
-        if updated_settings != current_settings:
-            self.config.set_display_settings(updated_settings.get('display', {}))
-            self.config.save_config()
-            self.ui.show_message("Settings saved!", "success")
+        # Always save settings after modification (UI handles the changes)
+        # Save all setting categories, not just display
+        if updated_settings:
+            # Save display settings
+            if 'display' in updated_settings:
+                self.config.set_display_settings(updated_settings['display'])
+            
+            # Save reading settings
+            if 'reading' in updated_settings:
+                reading_settings = updated_settings['reading']
+                for key, value in reading_settings.items():
+                    self.config.set('READING', key, str(value))
+            
+            # Save the configuration
+            if self.config.save_config():
+                self.ui.show_message("Settings saved successfully!", "success")
+                
+                # Re-paginate if display settings changed and we have a current reader
+                if self.current_reader and 'display' in updated_settings:
+                    display_settings = self.config.get_display_settings()
+                    self.current_reader.paginate_chapters(
+                        display_settings['page_width'],
+                        display_settings['page_height']
+                    )
+                    # Update UI manager's page dimensions
+                    self.ui.page_width = display_settings['page_width']
+                    self.ui.page_height = display_settings['page_height']
+            else:
+                self.ui.show_message("Failed to save settings!", "error")
+            
             time.sleep(1)
     
     def open_book(self, file_path: str) -> bool:
